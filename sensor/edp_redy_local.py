@@ -4,6 +4,7 @@
 import asyncio
 import json
 import logging
+import decimal
 import requests
 from datetime import timedelta
 
@@ -26,7 +27,9 @@ _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = 'edp_redy_local'
 ATTR_LAST_COMMUNICATION = 'last_communication'
-ATTR_IS_ONLINE = 'online'
+ATTR_ONLINE = 'online'
+ATTR_ENTITY_PICTURE = 'entity_picture'
+ATTR_VOLTAGE = 'Voltagem'
 CONF_UPDATE_INTERVAL = 'update_interval'
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
@@ -51,13 +54,13 @@ def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
     sensors = {}
     new_sensors_list = []
 
-    def load_sensor(sensor_id, name, power, last_communication, is_online):
+    def load_sensor(sensor_id, name, power, last_communication, is_online, voltage, contracted_power):
         if sensor_id in sensors:
-            sensors[sensor_id].update_data(power, last_communication, is_online)
+            sensors[sensor_id].update_data(power, last_communication, is_online, voltage, contracted_power)
             return
 
         # create new sensor
-        sensor = EdpRedyLocalSensor(sensor_id, name, power, last_communication, is_online)
+        sensor = EdpRedyLocalSensor(sensor_id, name, power, last_communication, is_online, None, None) 
         sensors[sensor_id] = sensor
         new_sensors_list.append(sensor)
 
@@ -69,18 +72,21 @@ def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
 
     def read_nodes(json_nodes):
         for node in json_nodes:
+            if "NAME" not in node:
+              _LOGGER.error("sensor NO NAME wtf!!")
+            else: 
+              _LOGGER.error("sensor %s", node["NAME"])
             if "EMETER:POWER_APLUS" not in node:
                 continue
 
             node_id = node["ID"]
             node_name = node["NAME"]
             node_power = node["EMETER:POWER_APLUS"]
-            if  if "ONLINE" in node:
-              node_is_online = node["ONLINE"]
-            else
+            if "ONLINE" not in node:
               node_is_online = None
-            
-            load_sensor(node_id, node_name, node_power, None, node_is_online)
+            else: 
+              node_is_online = node["ONLINE"]
+            load_sensor(node_id, node_name, node_power, None, None, None, None)
 
     def parse_data(json):
         redymeter_section = get_json_section(json, "REDYMETER")
@@ -97,7 +103,9 @@ def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
             edpbox_power = edpbox_section["EMETER:POWER_APLUS"]
             edpbox_last_comm = edpbox_section["LAST_COMMUNICATION"]
             edpbox_is_online = edpbox_section["ONLINE"]
-            load_sensor(edpbox_id, "Smart Meter", edpbox_power, edpbox_last_comm, edpbox_is_online)
+            edpbox_voltage = edpbox_section["EMETER:VOLTAGE_L1"]
+            edpbox_contracted_power = edpbox_section["CONTRACTED_POWER"]
+            load_sensor(edpbox_id, "Smart Meter", edpbox_power, edpbox_last_comm,edpbox_is_online,edpbox_voltage,edpbox_contracted_power)
 
     def update(time):
         """Fetch data from the redy box and update sensors."""
@@ -135,20 +143,44 @@ def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
 class EdpRedyLocalSensor(Entity):
     """Representation of a sensor."""
 
-    def __init__(self, node_id, name, power, last_communication, is_online):
+    def __init__(self, node_id, name, power, last_communication, is_online, voltage, contracted_power):
         """Set up sensor and add update callback to get data from websocket."""
         self._id = node_id
         self._name = 'Power {0}'.format(name)
-        self._power = float(power)*1000
+        if power is not None:
+         self._power = round(float(power)*1000, 0)        
+        else: 
+         self._power = power
         self._last_comm = last_communication
         self._is_online = is_online
+        if voltage is not None:
+         self._voltage = round(float(voltage),0)
+        else: 
+         self._voltage = voltage
+        if contracted_power is not None:
+         self._contracted_power = round(float(contracted_power)/(1000), 2)
+        else: 
+         self._contracted_power = contracted_power
+        _LOGGER.error("init %s", self._name)
 
-    def update_data(self, power, last_communication, is_online):
+    def update_data(self, power, last_communication, is_online, voltage, contracted_power):
         """Update the sensor's state."""
-        self._power = float(power)*1000
+        if power is not None:
+         self._power = round(float(power)*1000, 0)        
+        else: 
+         self._power = power
         self._last_comm = last_communication
         self._is_online = is_online
+        if voltage is not None:
+         self._voltage = round(float(voltage),0)
+        else: 
+         self._voltage = voltage
+        if contracted_power is not None:
+         self._contracted_power = float(contracted_power)/(1000)
+        else: 
+         self._contracted_power = contracted_power
         self.async_schedule_update_ha_state()
+        _LOGGER.error("updated %s", self._name)
 
     @property
     def state(self):
@@ -189,21 +221,23 @@ class EdpRedyLocalSensor(Entity):
     def device_state_attributes(self):
         """Return the state attributes of the sensor."""
         if self._last_comm:
-           if self._is_online is not None:
-              attr = {
-                  ATTR_LAST_COMMUNICATION: self._last_comm,  
-                  ATTR_IS_ONLINE: self._is_online,
-              }
-           else
-              attr = {
-                  ATTR_LAST_COMMUNICATION: self._last_comm, 
-            }
-            return attr
-        else
-           if self._is_online is not None:
-             attr = {
-                 ATTR_IS_ONLINE: self._is_online,
-             }
-           return attr
+             if self._is_online and self._is_online == 'TRUE':
+                attr = {
+                    ATTR_LAST_COMMUNICATION: self._last_comm,
+                    ATTR_ONLINE: self._is_online,
+                    ATTR_ENTITY_PICTURE: '/local/edp_on.png',
+                    ATTR_VOLTAGE: self._voltage
+                }
+             elif self._is_online and self._is_online == 'FALSE':
+                attr = {
+                    ATTR_LAST_COMMUNICATION: self._last_comm,
+                    ATTR_ONLINE: self._is_online,
+                    ATTR_ENTITY_PICTURE: '/local/edp_off.png',
+                    ATTR_VOLTAGE: self._voltage
+                }
+             else: 
+                attr = {
+                    ATTR_LAST_COMMUNICATION: self._last_comm,
+                }
+             return attr
         return None
-     
