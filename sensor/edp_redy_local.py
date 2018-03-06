@@ -26,6 +26,7 @@ _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = 'edp_redy_local'
 ATTR_LAST_COMMUNICATION = 'last_communication'
+ATTR_IS_ONLINE = 'online'
 CONF_UPDATE_INTERVAL = 'update_interval'
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
@@ -50,13 +51,13 @@ def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
     sensors = {}
     new_sensors_list = []
 
-    def load_sensor(sensor_id, name, power, last_communication):
+    def load_sensor(sensor_id, name, power, last_communication, is_online):
         if sensor_id in sensors:
-            sensors[sensor_id].update_data(power, last_communication)
+            sensors[sensor_id].update_data(power, last_communication, is_online)
             return
 
         # create new sensor
-        sensor = EdpRedyLocalSensor(sensor_id, name, power, last_communication)
+        sensor = EdpRedyLocalSensor(sensor_id, name, power, last_communication, is_online)
         sensors[sensor_id] = sensor
         new_sensors_list.append(sensor)
 
@@ -74,7 +75,12 @@ def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
             node_id = node["ID"]
             node_name = node["NAME"]
             node_power = node["EMETER:POWER_APLUS"]
-            load_sensor(node_id, node_name, node_power, None)
+            if  if "ONLINE" in node:
+              node_is_online = node["ONLINE"]
+            else
+              node_is_online = None
+            
+            load_sensor(node_id, node_name, node_power, None, node_is_online)
 
     def parse_data(json):
         redymeter_section = get_json_section(json, "REDYMETER")
@@ -90,7 +96,8 @@ def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
             edpbox_id = edpbox_section["SMARTMETER_ID"]
             edpbox_power = edpbox_section["EMETER:POWER_APLUS"]
             edpbox_last_comm = edpbox_section["LAST_COMMUNICATION"]
-            load_sensor(edpbox_id, "Smart Meter", edpbox_power, edpbox_last_comm)
+            edpbox_is_online = edpbox_section["ONLINE"]
+            load_sensor(edpbox_id, "Smart Meter", edpbox_power, edpbox_last_comm, edpbox_is_online)
 
     def update(time):
         """Fetch data from the redy box and update sensors."""
@@ -128,17 +135,19 @@ def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
 class EdpRedyLocalSensor(Entity):
     """Representation of a sensor."""
 
-    def __init__(self, node_id, name, power, last_communication):
+    def __init__(self, node_id, name, power, last_communication, is_online):
         """Set up sensor and add update callback to get data from websocket."""
         self._id = node_id
         self._name = 'Power {0}'.format(name)
         self._power = float(power)*1000
         self._last_comm = last_communication
+        self._is_online = is_online
 
-    def update_data(self, power, last_communication):
+    def update_data(self, power, last_communication, is_online):
         """Update the sensor's state."""
         self._power = float(power)*1000
         self._last_comm = last_communication
+        self._is_online = is_online
         self.async_schedule_update_ha_state()
 
     @property
@@ -180,8 +189,21 @@ class EdpRedyLocalSensor(Entity):
     def device_state_attributes(self):
         """Return the state attributes of the sensor."""
         if self._last_comm:
-            attr = {
-                ATTR_LAST_COMMUNICATION: self._last_comm,
+           if self._is_online is not None:
+              attr = {
+                  ATTR_LAST_COMMUNICATION: self._last_comm,  
+                  ATTR_IS_ONLINE: self._is_online,
+              }
+           else
+              attr = {
+                  ATTR_LAST_COMMUNICATION: self._last_comm, 
             }
             return attr
+        else
+           if self._is_online is not None:
+             attr = {
+                 ATTR_IS_ONLINE: self._is_online,
+             }
+           return attr
         return None
+     
