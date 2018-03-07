@@ -30,6 +30,7 @@ ATTR_LAST_COMMUNICATION = 'last_communication'
 ATTR_ONLINE = 'online'
 ATTR_ENTITY_PICTURE = 'entity_picture'
 ATTR_VOLTAGE = 'Voltagem'
+ATTR_ICON = 'icon'
 CONF_UPDATE_INTERVAL = 'update_interval'
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
@@ -72,10 +73,10 @@ def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
 
     def read_nodes(json_nodes):
         for node in json_nodes:
-            if "NAME" not in node:
-              _LOGGER.error("sensor NO NAME wtf!!")
-            else: 
-              _LOGGER.error("sensor %s", node["NAME"])
+#            if "NAME" not in node:
+#              _LOGGER.error("sensor NO NAME wtf!!")
+#            else: 
+#              _LOGGER.error("sensor %s", node["NAME"])
             if "EMETER:POWER_APLUS" not in node:
                 continue
 
@@ -93,9 +94,9 @@ def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
         if redymeter_section:
             read_nodes(redymeter_section["NODES"])
 
-        zbendpoint_section = get_json_section(json, "ZBENDPOINT")
-        if zbendpoint_section:
-            read_nodes(zbendpoint_section["NODES"])
+        for znodes in json["ZBENDPOINT"]:
+           if znodes:
+              read_nodes(znodes["NODES"])
 
         edpbox_section = get_json_section(json, "EDPBOX")
         if edpbox_section:
@@ -180,7 +181,7 @@ class EdpRedyLocalSensor(Entity):
         else: 
          self._contracted_power = contracted_power
         self.async_schedule_update_ha_state()
-        _LOGGER.error("updated %s", self._name)
+#        _LOGGER.error("updated %s", self._name)
 
     @property
     def state(self):
@@ -200,12 +201,14 @@ class EdpRedyLocalSensor(Entity):
     @property
     def device_class(self):
         """Return the class of the sensor."""
+#        if self._is_online:
+#           return "plug"
         return "power"
 
-    # @property
-    # def icon(self):
-    #     """Return the icon to use in the frontend."""
-    #     return self._sensor.sensor_icon
+#    @property
+#    def icon(self):
+#        """Return the icon to use in the frontend."""
+#        return self._sensor.sensor_icon
 
     @property
     def unit_of_measurement(self):
@@ -225,14 +228,14 @@ class EdpRedyLocalSensor(Entity):
                 attr = {
                     ATTR_LAST_COMMUNICATION: self._last_comm,
                     ATTR_ONLINE: self._is_online,
-                    ATTR_ENTITY_PICTURE: '/local/edp_on.png',
+                    ATTR_ICON: 'mdi:cloud-outline',
                     ATTR_VOLTAGE: self._voltage
                 }
              elif self._is_online and self._is_online == 'FALSE':
                 attr = {
                     ATTR_LAST_COMMUNICATION: self._last_comm,
                     ATTR_ONLINE: self._is_online,
-                    ATTR_ENTITY_PICTURE: '/local/edp_off.png',
+                    ATTR_ICON: 'mdi:cloud-off-outline',
                     ATTR_VOLTAGE: self._voltage
                 }
              else: 
